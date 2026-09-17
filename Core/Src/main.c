@@ -1,66 +1,54 @@
-/* USER CODE BEGIN Header */
-/**
-  ******************************************************************************
-  * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2026 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
-/* USER CODE END Header */
-/* Includes ------------------------------------------------------------------*/
 #include "main.h"
 
-/* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */
 
-/* USER CODE END Includes */
 
-/* Private typedef -----------------------------------------------------------*/
-/* USER CODE BEGIN PTD */
 
-/* USER CODE END PTD */
+/*
+KEYPAD
+------
+PC4  Row 0
+PC5  Row 1
+PC6  Row 2
+PC7  Row 3
 
-/* Private define ------------------------------------------------------------*/
-/* USER CODE BEGIN PD */
+PC8  Column 0
+PC9  Column 1
+PC10 Column 2
 
-/* USER CODE END PD */
 
-/* Private macro -------------------------------------------------------------*/
-/* USER CODE BEGIN PM */
+LCD — 4-bit mode
+----------------
+PB0  RS
+PB1  R/W
+PB2  E
 
-/* USER CODE END PM */
+PB4  DB4
+PB5  DB5
+PB6  DB6
+PB7  DB7
 
-/* Private variables ---------------------------------------------------------*/
 
-/* USER CODE BEGIN PV */
+LOCK LED
+--------
+PA5  onboard green LED LD2
+*/
 
-/* USER CODE END PV */
 
-/* Private function prototypes -----------------------------------------------*/
+#define LCD_PORT        GPIOB
+
+#define LCD_RS_PIN      0U
+#define LCD_RW_PIN      1U
+#define LCD_E_PIN       2U
+
+#define LCD_DB4_PIN     4U
+#define LCD_DB5_PIN     5U
+#define LCD_DB6_PIN     6U
+#define LCD_DB7_PIN     7U
+
+
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-/* USER CODE BEGIN PFP */
 
-/* USER CODE END PFP */
-
-/* Private user code ---------------------------------------------------------*/
-/* USER CODE BEGIN 0 */
-
-/* USER CODE END 0 */
-
-/**
-  * @brief  The application entry point.
-  * @retval int
-  */
 int main(void)
 {
 
