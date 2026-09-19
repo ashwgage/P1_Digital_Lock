@@ -76,6 +76,9 @@ int main(void)
   MX_GPIO_Init();
   /* USER CODE BEGIN 2 */
 
+  LCD_init();
+  LCD_write_char('A');
+  
   /* USER CODE END 2 */
 
   /* Infinite loop */
