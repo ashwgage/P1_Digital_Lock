@@ -231,7 +231,7 @@ static void handle_key(char key) {
       if (entry_len >= PIN_MIN_LEN && pins_match(entry, stored_pin)) {
         enter_unlocked_state();
       } else {
-        show_message("WRONG PIN", "TRY AGAIN");
+        show_message("WRONG PIN CUH", "TRY AGAIN");
         entry_reset();
       }
     } else {
