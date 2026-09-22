@@ -77,7 +77,11 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   LCD_init();
-  LCD_write_char('A');
+  LCD_clear();
+  LCD_set_cursor(0U, 0U);
+  LCD_write_string("LCD TEST");
+  LCD_set_cursor(1U, 0U);
+  LCD_write_string("HELLO STM32");
   
   /* USER CODE END 2 */
 
