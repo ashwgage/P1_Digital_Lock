@@ -1,13 +1,15 @@
 #include "lcd.h"
 
 #define LCD_FUNCTION_SET 0x28U
-#define LCD_DISPLAY_ON 0x0C
-#define LCD_ENTRY_MODE 0x06
-#define LCD_CLEAR_DISPLAY 0x01
+#define LCD_DISPLAY_ON 0x0CU
+#define LCD_ENTRY_MODE 0x06U
+#define LCD_CLEAR_DISPLAY 0x01U
 #define LCD_DISPLAY_OFF 0x08U
-#define LCD_LINE_2 0xC0
-#define LCD_RS_PIN 0
-#define LCD_RW_PIN 1
+#define LCD_LINE_1 0x80U
+#define LCD_LINE_2 0xC0U
+#define LCD_COLUMNS 20U
+#define LCD_RS_PIN 0U
+#define LCD_RW_PIN 1U
 #define LCD_E_PIN 2U
 #define LCD_DB4_PIN 4U
 #define LCD_DB5_PIN 5U
@@ -76,6 +78,44 @@ void LCD_write_char(uint8_t letter) {
 
   /* Wait for the LCD to process the character. */
   LCD_delay(LCD_DELAY_500US);
+}
+
+/* -----------------------------------
+ * Write a null-terminated string
+ * ----------------------------------- */
+void LCD_write_string(const char *text)
+{
+    while (*text != '\0') {
+        LCD_write_char((uint8_t)*text);
+        text++;
+    }
+}
+
+/* -----------------------------------
+ * Clear the LCD
+ * ----------------------------------- */
+void LCD_clear(void)
+{
+    LCD_command(LCD_CLEAR_DISPLAY);
+}
+
+/* -----------------------------------
+ * Set the LCD cursor position
+ *
+ * row 0 = first row
+ * row 1 = second row
+ * ----------------------------------- */
+void LCD_set_cursor(uint8_t row, uint8_t column)
+{
+    if (column >= LCD_COLUMNS) {
+        column = LCD_COLUMNS - 1U;
+    }
+
+    if (row == 0U) {
+        LCD_command(LCD_LINE_1 + column);
+    } else {
+        LCD_command(LCD_LINE_2 + column);
+    }
 }
 
 static void LCD_write_nibble(uint8_t nibble) {
