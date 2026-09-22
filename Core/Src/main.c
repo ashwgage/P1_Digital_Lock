@@ -1,117 +1,274 @@
+/* =================================================================
+ * P1 - Digital Lock
+ * =================================================================
+ * Integrates the LCD module and the 4x3 matrix keypad to build a
+ * virtual electronic lock. The onboard LED (LD2, PA5) is the locking
+ * mechanism: ON = locked, OFF = unlocked.
+ *
+ * Wiring
+ * ------
+ *   Keypad rows    : PC4 - PC7  (inputs, pull-down)
+ *   Keypad columns : PC8 - PC10 (outputs)
+ *
+ *   LCD RS/RW/E    : PB0 / PB1 / PB2
+ *   LCD DB4 - DB7  : PB4 - PB7
+ *
+ *   Lock LED (LD2) : PA5
+ *
+ * Behavior
+ * --------
+ *   - Powers up LOCKED with the default PIN.
+ *   - LCD shows the lock status on both rows.
+ *   - While entering a PIN, digits are echoed on the LCD.
+ *   - '*' clears the current entry.
+ *   - '#' submits the entry.
+ *       * When LOCKED : a correct PIN unlocks the box.
+ *       * When UNLOCKED: '#' with no digits re-locks (keeps same PIN);
+ *                        entering digits then '#' reprograms the PIN.
+ * ================================================================= */
+
 #include "main.h"
 #include "lcd.h"
+#include "keypad.h"
 
+/* ----------------------------- Config ---------------------------- */
 
+/* Onboard green LED LD2 is on PA5. */
+#define LED_PORT GPIOA
+#define LED_PIN 5U
 
+/* PIN constraints. */
+#define PIN_MAX_LEN 8U   /* buffer capacity              */
+#define PIN_MIN_LEN 4U   /* requirement: at least 4 digits */
 
-/*
-KEYPAD
-------
-PC4  Row 0
-PC5  Row 1
-PC6  Row 2
-PC7  Row 3
+/* Default power-up combination (at least 4 digits). */
+static const char DEFAULT_PIN[] = "1234";
 
-PC8  Column 0
-PC9  Column 1
-PC10 Column 2
+/* --------------------------- Lock state -------------------------- */
 
+typedef enum {
+  STATE_LOCKED,
+  STATE_UNLOCKED
+} lock_state_t;
 
-LCD — 4-bit mode
-----------------
-PB0  RS
-PB1  R/W
-PB2  E
+static char stored_pin[PIN_MAX_LEN + 1U];
+static char entry[PIN_MAX_LEN + 1U];
+static uint8_t entry_len;
+static lock_state_t state;
 
-PB4  DB4
-PB5  DB5
-PB6  DB6
-PB7  DB7
-
-
-LOCK LED
---------
-PA5  onboard green LED LD2
-*/
-
-
-#define LCD_PORT        GPIOB
-
-#define LCD_RS_PIN      0U
-#define LCD_RW_PIN      1U
-#define LCD_E_PIN       2U
-
-#define LCD_DB4_PIN     4U
-#define LCD_DB5_PIN     5U
-#define LCD_DB6_PIN     6U
-#define LCD_DB7_PIN     7U
-
+/* --------------------------- Prototypes -------------------------- */
 
 void SystemClock_Config(void);
-static void MX_GPIO_Init(void);
+static void lock_led_init(void);
+static void lock_led_on(void);
+static void lock_led_off(void);
 
-int main(void)
-{
+static void copy_pin(char *dst, const char *src);
+static uint8_t pins_match(const char *a, const char *b);
 
-  /* USER CODE BEGIN 1 */
+static void entry_reset(void);
+static void entry_add(char digit);
 
-  /* USER CODE END 1 */
+static void show_locked(void);
+static void show_unlocked(void);
+static void show_entry(void);
+static void show_message(const char *line1, const char *line2);
 
-  /* MCU Configuration--------------------------------------------------------*/
+static void enter_locked_state(void);
+static void enter_unlocked_state(void);
+static void handle_key(char key);
 
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+/* ============================== main ============================= */
+
+int main(void) {
   HAL_Init();
-
-  /* USER CODE BEGIN Init */
-
-  /* USER CODE END Init */
-
-  /* Configure the system clock */
   SystemClock_Config();
 
-  /* USER CODE BEGIN SysInit */
-
-  /* USER CODE END SysInit */
-
-  /* Initialize all configured peripherals */
-  MX_GPIO_Init();
-  /* USER CODE BEGIN 2 */
-
+  /* Bring up peripherals. */
+  lock_led_init();
   LCD_init();
-  LCD_write_char('A');
-  
-  /* USER CODE END 2 */
+  keypad_init();
 
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-    /* USER CODE END WHILE */
+  /* Power up in the LOCKED state with the default PIN. */
+  copy_pin(stored_pin, DEFAULT_PIN);
+  enter_locked_state();
 
-    /* USER CODE BEGIN 3 */
+  while (1) {
+    char key = keypad_get_key();
+    handle_key(key);
   }
-  /* USER CODE END 3 */
 }
 
-/**
-  * @brief System Clock Configuration
-  * @retval None
-  */
-void SystemClock_Config(void)
-{
+/* ======================= Lock LED (PA5) ========================== */
+
+static void lock_led_init(void) {
+  RCC->AHB2ENR |= RCC_AHB2ENR_GPIOAEN;
+
+  /* PA5 as push-pull output, no pull resistor. */
+  LED_PORT->MODER &= ~GPIO_MODER_MODE5;
+  LED_PORT->MODER |= GPIO_MODER_MODE5_0;
+  LED_PORT->OTYPER &= ~GPIO_OTYPER_OT5;
+  LED_PORT->PUPDR &= ~GPIO_PUPDR_PUPD5;
+
+  LED_PORT->BRR = (1UL << LED_PIN); /* start off; state fn sets it */
+}
+
+static void lock_led_on(void) { LED_PORT->BSRR = (1UL << LED_PIN); }
+
+static void lock_led_off(void) { LED_PORT->BRR = (1UL << LED_PIN); }
+
+/* ========================= PIN helpers =========================== */
+
+/* Copy a null-terminated PIN string (bounded by PIN_MAX_LEN). */
+static void copy_pin(char *dst, const char *src) {
+  uint8_t i = 0U;
+  while (src[i] != '\0' && i < PIN_MAX_LEN) {
+    dst[i] = src[i];
+    i++;
+  }
+  dst[i] = '\0';
+}
+
+/* Return 1 when two PIN strings are identical, else 0. */
+static uint8_t pins_match(const char *a, const char *b) {
+  uint8_t i = 0U;
+  while (a[i] != '\0' && b[i] != '\0') {
+    if (a[i] != b[i]) {
+      return 0U;
+    }
+    i++;
+  }
+  return (a[i] == '\0' && b[i] == '\0') ? 1U : 0U;
+}
+
+/* ======================== Entry buffer =========================== */
+
+static void entry_reset(void) {
+  entry_len = 0U;
+  entry[0] = '\0';
+}
+
+static void entry_add(char digit) {
+  if (entry_len < PIN_MAX_LEN) {
+    entry[entry_len] = digit;
+    entry_len++;
+    entry[entry_len] = '\0';
+  }
+}
+
+/* ========================= LCD screens =========================== */
+
+static void show_message(const char *line1, const char *line2) {
+  LCD_clear();
+  LCD_set_cursor(0U, 0U);
+  LCD_write_string(line1);
+  LCD_set_cursor(1U, 0U);
+  LCD_write_string(line2);
+}
+
+/* Row 0: status. Row 1: entry prompt. */
+static void show_locked(void) { show_message("LOCKED", "ENTER KEY:"); }
+
+static void show_unlocked(void) {
+  show_message("UNLOCKED", "# LOCK  * CLEAR");
+}
+
+/* Redraw only the second row with the current entry digits.
+ * Both labels are 10 chars, followed by 1 space -> 11-char prefix. */
+static void show_entry(void) {
+  uint8_t used;
+
+  LCD_set_cursor(1U, 0U);
+  if (state == STATE_LOCKED) {
+    LCD_write_string("ENTER KEY:");
+  } else {
+    LCD_write_string("NEW PIN:  ");
+  }
+  LCD_write_char(' ');
+  LCD_write_string(entry);
+
+  /* Pad the remainder of the row so previously shown digits clear. */
+  used = (uint8_t)(11U + entry_len);
+  while (used < 20U) {
+    LCD_write_char(' ');
+    used++;
+  }
+}
+
+/* ====================== State transitions ======================== */
+
+static void enter_locked_state(void) {
+  state = STATE_LOCKED;
+  entry_reset();
+  lock_led_on();
+  show_locked();
+}
+
+static void enter_unlocked_state(void) {
+  state = STATE_UNLOCKED;
+  entry_reset();
+  lock_led_off();
+  show_unlocked();
+}
+
+/* ========================= Key handling ========================== */
+
+static void handle_key(char key) {
+  if (key == KEYPAD_STAR) {
+    /* '*' clears whatever has been entered and restarts entry. */
+    entry_reset();
+    if (state == STATE_LOCKED) {
+      show_locked();
+    } else {
+      show_unlocked();
+    }
+    return;
+  }
+
+  if (key == KEYPAD_POUND) {
+    if (state == STATE_LOCKED) {
+      /* Submit the PIN attempt. */
+      if (entry_len >= PIN_MIN_LEN && pins_match(entry, stored_pin)) {
+        enter_unlocked_state();
+      } else {
+        show_message("WRONG PIN", "TRY AGAIN");
+        entry_reset();
+      }
+    } else {
+      /* UNLOCKED: '#' either re-locks or reprograms the PIN. */
+      if (entry_len == 0U) {
+        /* Re-lock with the same PIN. */
+        enter_locked_state();
+      } else if (entry_len >= PIN_MIN_LEN) {
+        /* Reprogram the PIN, then return to the unlocked screen. */
+        copy_pin(stored_pin, entry);
+        show_message("PIN UPDATED", "# LOCK  * CLEAR");
+        entry_reset();
+      } else {
+        show_message("PIN TOO SHORT", "MIN 4 DIGITS");
+        entry_reset();
+      }
+    }
+    return;
+  }
+
+  /* Otherwise it is a digit '0'-'9': append and echo. */
+  if (key >= '0' && key <= '9') {
+    entry_add(key);
+    show_entry();
+  }
+}
+
+/* ================== CubeMX-style support code ==================== */
+
+void SystemClock_Config(void) {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
-  /** Configure the main internal regulator output voltage
-  */
-  if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1) != HAL_OK)
-  {
+  if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1) != HAL_OK) {
     Error_Handler();
   }
 
-  /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
@@ -122,104 +279,24 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV7;
   RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
   RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
     Error_Handler();
   }
 
-  /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK |
+                                RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK)
-  {
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK) {
     Error_Handler();
   }
 }
 
-/**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_GPIO_Init(void)
-{
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-  /* USER CODE BEGIN MX_GPIO_Init_1 */
-
-  /* USER CODE END MX_GPIO_Init_1 */
-
-  /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOC_CLK_ENABLE();
-  __HAL_RCC_GPIOH_CLK_ENABLE();
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin : B1_Pin */
-  GPIO_InitStruct.Pin = B1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : USART_TX_Pin USART_RX_Pin */
-  GPIO_InitStruct.Pin = USART_TX_Pin|USART_RX_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-  GPIO_InitStruct.Alternate = GPIO_AF7_USART2;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : LD2_Pin */
-  GPIO_InitStruct.Pin = LD2_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
-
-  /* USER CODE BEGIN MX_GPIO_Init_2 */
-
-  /* USER CODE END MX_GPIO_Init_2 */
-}
-
-/* USER CODE BEGIN 4 */
-
-/* USER CODE END 4 */
-
-/**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
-void Error_Handler(void)
-{
-  /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
+void Error_Handler(void) {
   __disable_irq();
-  while (1)
-  {
+  while (1) {
   }
-  /* USER CODE END Error_Handler_Debug */
 }
-#ifdef USE_FULL_ASSERT
-/**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
-void assert_failed(uint8_t *file, uint32_t line)
-{
-  /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line number,
-     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-  /* USER CODE END 6 */
-}
-#endif /* USE_FULL_ASSERT */
