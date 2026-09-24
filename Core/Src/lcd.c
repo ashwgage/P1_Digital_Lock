@@ -1,8 +1,6 @@
 #include "lcd.h"
 
-/* -----------------------------------------------------------------
- * HD44780 command set (4-bit interface)
- * ----------------------------------------------------------------- */
+/* LCD commands for 4-bit mode. */
 #define LCD_FUNCTION_SET 0x28U  /* 4-bit, 2 lines, 5x8 font        */
 #define LCD_DISPLAY_ON 0x0CU    /* display on, cursor off, blink off */
 #define LCD_DISPLAY_OFF 0x08U
@@ -13,7 +11,7 @@
 #define LCD_LINE_2 0xC0U /* DDRAM address, row 1                    */
 #define LCD_COLUMNS 20U
 
-/* Control / data pin positions on GPIOB. */
+/* LCD pins connected to GPIOB. */
 #define LCD_RS_PIN 0U
 #define LCD_RW_PIN 1U
 #define LCD_E_PIN 2U
@@ -22,14 +20,7 @@
 #define LCD_DB6_PIN 6U
 #define LCD_DB7_PIN 7U
 
-/*
- * Timing
- * ------
- * The core runs at 80 MHz (see SystemClock_Config). A hand-tuned
- * busy loop is fragile at that speed, so long waits use HAL_Delay
- * (milliseconds) and only the very short E-pulse / settle timing
- * uses a microsecond busy loop calibrated for 80 MHz.
- */
+/* Board clock speed. */
 #define SYS_CLK_HZ 80000000UL
 
 /* Microsecond busy-loop delay (calibrated for 80 MHz, -O0). */
@@ -38,12 +29,7 @@ static void LCD_delay_us(uint32_t us);
 static void LCD_delay_ms(uint32_t ms);
 static void LCD_write_nibble(uint8_t nibble);
 
-/* -----------------------------------------------------------------
- * Short (microsecond) software delay
- * -----------------------------------------------------------------
- * Roughly 4 core cycles per loop iteration at -O0, so the core
- * does about (SYS_CLK_HZ / 4) iterations per second.
- * ----------------------------------------------------------------- */
+/* Short delay based on the 80 MHz clock. */
 static void LCD_delay_us(uint32_t us) {
   volatile uint32_t count = (SYS_CLK_HZ / 4000000UL) * us;
   while (count--) {
@@ -51,17 +37,12 @@ static void LCD_delay_us(uint32_t us) {
   }
 }
 
-/* -----------------------------------------------------------------
- * Long (millisecond) delay using the HAL timebase (SysTick).
- * HAL_Init() has already started SysTick before LCD_init() runs.
- * ----------------------------------------------------------------- */
+/* Use HAL for longer delays. */
 static void LCD_delay_ms(uint32_t ms) { HAL_Delay(ms); }
 
-/* -----------------------------------------------------------------
- * Push one 4-bit nibble onto DB4-DB7 and pulse E to latch it.
- * ----------------------------------------------------------------- */
+/* Send four data bits to the LCD. */
 static void LCD_write_nibble(uint8_t nibble) {
-  /* Clear DB4-DB7 without touching the control pins. */
+  /* Clear the old data bits. */
   GPIOB->BRR = (1UL << LCD_DB4_PIN) | (1UL << LCD_DB5_PIN) |
                (1UL << LCD_DB6_PIN) | (1UL << LCD_DB7_PIN);
 
@@ -77,16 +58,16 @@ static void LCD_write_nibble(uint8_t nibble) {
   LCD_delay_us(50U);
 }
 
-/* -----------------------------------------------------------------
- * Send one command byte (RS = 0, R/W = 0)
- * ----------------------------------------------------------------- */
+/* Send one command byte. */
 void LCD_command(uint8_t command) {
+  /* RS = 0 selects command mode. */
   GPIOB->BRR = (1UL << LCD_RS_PIN) | (1UL << LCD_RW_PIN);
-
+  
+  /* Send the byte as two nibbles. */
   LCD_write_nibble(command >> 4);
   LCD_write_nibble(command & 0x0FU);
 
-  /* Clear-display and return-home need extra settling time (>1.52 ms). */
+  /* Clear-display and return-home need more time. */
   if (command == LCD_CLEAR_DISPLAY || command == LCD_RETURN_HOME) {
     LCD_delay_ms(2U);
   } else {
@@ -94,10 +75,9 @@ void LCD_command(uint8_t command) {
   }
 }
 
-/* -----------------------------------------------------------------
- * Send one data byte / character (RS = 1, R/W = 0)
- * ----------------------------------------------------------------- */
+/* Send one character to the display. */
 void LCD_write_char(uint8_t letter) {
+  /* RS = 1 selects data mode. */
   GPIOB->BSRR = (1UL << LCD_RS_PIN);
   GPIOB->BRR = (1UL << LCD_RW_PIN);
 
@@ -107,9 +87,7 @@ void LCD_write_char(uint8_t letter) {
   LCD_delay_us(50U);
 }
 
-/* -----------------------------------------------------------------
- * Write a null-terminated string
- * ----------------------------------------------------------------- */
+/* Write characters until the string ends. */
 void LCD_write_string(const char *text) {
   while (*text != '\0') {
     LCD_write_char((uint8_t)*text);
@@ -117,14 +95,10 @@ void LCD_write_string(const char *text) {
   }
 }
 
-/* -----------------------------------------------------------------
- * Clear the display
- * ----------------------------------------------------------------- */
+/* Clear the display. */
 void LCD_clear(void) { LCD_command(LCD_CLEAR_DISPLAY); }
 
-/* -----------------------------------------------------------------
- * Move the cursor.  row 0 = top line, row 1 = bottom line.
- * ----------------------------------------------------------------- */
+/* Move the cursor.  row 0 = top line, row 1 = bottom line. */
 void LCD_set_cursor(uint8_t row, uint8_t column) {
   if (column >= LCD_COLUMNS) {
     column = LCD_COLUMNS - 1U;
@@ -137,11 +111,8 @@ void LCD_set_cursor(uint8_t row, uint8_t column) {
   }
 }
 
-/* -----------------------------------------------------------------
- * Initialize the LCD and its GPIO
- * ----------------------------------------------------------------- */
+/* Set up GPIO and initialize the LCD. */
 void LCD_init(void) {
-  /* Enable GPIOB clock. */
   RCC->AHB2ENR |= RCC_AHB2ENR_GPIOBEN;
 
   /* PB0-PB2 and PB4-PB7 as GPIO outputs. */
