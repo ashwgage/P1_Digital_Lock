@@ -31,8 +31,6 @@
 #include "lcd.h"
 #include "keypad.h"
 
-/* ----------------------------- Config ---------------------------- */
-
 /* Onboard green LED LD2 is on PA5. */
 #define LED_PORT GPIOA
 #define LED_PIN 5U
@@ -41,10 +39,8 @@
 #define PIN_MAX_LEN 8U   /* buffer capacity              */
 #define PIN_MIN_LEN 4U   /* requirement: at least 4 digits */
 
-/* Default power-up combination (at least 4 digits). */
+/* PIN used when the lock first powers on. */
 static const char DEFAULT_PIN[] = "1234";
-
-/* --------------------------- Lock state -------------------------- */
 
 typedef enum {
   STATE_LOCKED,
@@ -55,8 +51,6 @@ static char stored_pin[PIN_MAX_LEN + 1U];
 static char entry[PIN_MAX_LEN + 1U];
 static uint8_t entry_len;
 static lock_state_t state;
-
-/* --------------------------- Prototypes -------------------------- */
 
 void SystemClock_Config(void);
 static void lock_led_init(void);
@@ -78,18 +72,16 @@ static void enter_locked_state(void);
 static void enter_unlocked_state(void);
 static void handle_key(char key);
 
-/* ============================== main ============================= */
-
 int main(void) {
   HAL_Init();
   SystemClock_Config();
 
-  /* Bring up peripherals. */
+  /* Initialize the LED, LCD, and keypad. */
   lock_led_init();
   LCD_init();
   keypad_init();
 
-  /* Power up in the LOCKED state with the default PIN. */
+  /* Start locked with the default PIN. */
   copy_pin(stored_pin, DEFAULT_PIN);
   enter_locked_state();
 
@@ -99,8 +91,7 @@ int main(void) {
   }
 }
 
-/* ======================= Lock LED (PA5) ========================== */
-
+/* Set PA5 up as an output for the lock LED. */
 static void lock_led_init(void) {
   RCC->AHB2ENR |= RCC_AHB2ENR_GPIOAEN;
 
@@ -117,9 +108,7 @@ static void lock_led_on(void) { LED_PORT->BSRR = (1UL << LED_PIN); }
 
 static void lock_led_off(void) { LED_PORT->BRR = (1UL << LED_PIN); }
 
-/* ========================= PIN helpers =========================== */
-
-/* Copy a null-terminated PIN string (bounded by PIN_MAX_LEN). */
+/* Copy a PIN string into another buffer. */
 static void copy_pin(char *dst, const char *src) {
   uint8_t i = 0U;
   while (src[i] != '\0' && i < PIN_MAX_LEN) {
@@ -141,13 +130,13 @@ static uint8_t pins_match(const char *a, const char *b) {
   return (a[i] == '\0' && b[i] == '\0') ? 1U : 0U;
 }
 
-/* ======================== Entry buffer =========================== */
-
+/* Clear the current PIN entry. */
 static void entry_reset(void) {
   entry_len = 0U;
   entry[0] = '\0';
 }
 
+/* Add one digit if the PIN is not full. */
 static void entry_add(char digit) {
   if (entry_len < PIN_MAX_LEN) {
     entry[entry_len] = digit;
@@ -156,8 +145,7 @@ static void entry_add(char digit) {
   }
 }
 
-/* ========================= LCD screens =========================== */
-
+/* Display two lines of text on the LCD. */
 static void show_message(const char *line1, const char *line2) {
   LCD_clear();
   LCD_set_cursor(0U, 0U);
@@ -167,14 +155,15 @@ static void show_message(const char *line1, const char *line2) {
 }
 
 /* Row 0: status. Row 1: entry prompt. */
-static void show_locked(void) { show_message("LOCKED", "ENTER KEY:"); }
+static void show_locked(void) { 
+  show_message("LOCKED", "ENTER KEY:"); 
+}
 
 static void show_unlocked(void) {
   show_message("UNLOCKED", "# LOCK  * CLEAR");
 }
 
-/* Redraw only the second row with the current entry digits.
- * Both labels are 10 chars, followed by 1 space -> 11-char prefix. */
+/* Update the current PIN entry on the second row. */
 static void show_entry(void) {
   uint8_t used;
 
@@ -195,8 +184,7 @@ static void show_entry(void) {
   }
 }
 
-/* ====================== State transitions ======================== */
-
+/* Change the lock to its locked state. */
 static void enter_locked_state(void) {
   state = STATE_LOCKED;
   entry_reset();
@@ -204,6 +192,7 @@ static void enter_locked_state(void) {
   show_locked();
 }
 
+/* Change the lock to its unlocked state. */
 static void enter_unlocked_state(void) {
   state = STATE_UNLOCKED;
   entry_reset();
@@ -211,8 +200,7 @@ static void enter_unlocked_state(void) {
   show_unlocked();
 }
 
-/* ========================= Key handling ========================== */
-
+/* Handle a key pressed on the keypad. */
 static void handle_key(char key) {
   if (key == KEYPAD_STAR) {
     /* '*' clears whatever has been entered and restarts entry. */
@@ -252,14 +240,12 @@ static void handle_key(char key) {
     return;
   }
 
-  /* Otherwise it is a digit '0'-'9': append and echo. */
+  /* Add number keys to the current PIN entry. */
   if (key >= '0' && key <= '9') {
     entry_add(key);
     show_entry();
   }
 }
-
-/* ================== CubeMX-style support code ==================== */
 
 void SystemClock_Config(void) {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
