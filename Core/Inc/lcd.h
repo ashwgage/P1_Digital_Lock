@@ -1,6 +1,7 @@
 #ifndef LCD_H
 #define LCD_H
 
+#include "main.h"
 #include <stdint.h>
 
 void LCD_init(void);
