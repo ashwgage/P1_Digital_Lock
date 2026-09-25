@@ -37,12 +37,14 @@ static void keypad_delay(volatile uint32_t count);
 static uint8_t read_rows(void);
 static int8_t row_to_index(uint8_t row_bits);
 
+/* Simple delay used for keypad debounce. */
 static void keypad_delay(volatile uint32_t count) {
   while (count--) {
     __NOP();
   }
 }
 
+/* Set up the keypad row and column pins. */
 void keypad_init(void) {
   RCC->AHB2ENR |= RCC_AHB2ENR_GPIOCEN;
 
@@ -71,11 +73,12 @@ void keypad_init(void) {
   COL_PORT->BRR = COL_PINS;
 }
 
+/* Shift PC4-PC7 down so the row values use bits 0-3. */
 static uint8_t read_rows(void) {
-  /* Shift PC4-PC7 down so the row values use bits 0-3. */
   return (uint8_t)((ROW_PORT->IDR & ROW_PINS) >> ROW_FIRST_PIN);
 }
 
+/* Convert one active row bit into its row number. */
 static int8_t row_to_index(uint8_t row_bits) {
   int8_t row = -1;
 
@@ -93,6 +96,7 @@ static int8_t row_to_index(uint8_t row_bits) {
   return row;
 }
 
+/* Scan the keypad and return the key currently pressed. */
 char keypad_scan(void) {
   uint8_t column;
   uint8_t row_bits;
@@ -130,6 +134,7 @@ char keypad_scan(void) {
   return KEYPAD_NONE;
 }
 
+/* Wait for one key press, debounce it, and wait for release. */
 char keypad_get_key(void) {
   char key;
 
