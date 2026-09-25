@@ -72,6 +72,7 @@ static void enter_locked_state(void);
 static void enter_unlocked_state(void);
 static void handle_key(char key);
 
+/* Main Loop */
 int main(void) {
   HAL_Init();
   SystemClock_Config();
@@ -104,9 +105,15 @@ static void lock_led_init(void) {
   LED_PORT->BRR = (1UL << LED_PIN); /* start off; state fn sets it */
 }
 
-static void lock_led_on(void) { LED_PORT->BSRR = (1UL << LED_PIN); }
+/* Turn the lock LED on. */
+static void lock_led_on(void) { 
+  LED_PORT->BSRR = (1UL << LED_PIN); 
+}
 
-static void lock_led_off(void) { LED_PORT->BRR = (1UL << LED_PIN); }
+/* Turn the lock LED off. */
+static void lock_led_off(void) { 
+  LED_PORT->BRR = (1UL << LED_PIN); 
+}
 
 /* Copy a PIN string into another buffer. */
 static void copy_pin(char *dst, const char *src) {
