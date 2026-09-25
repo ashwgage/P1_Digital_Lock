@@ -23,13 +23,11 @@
 /* Board clock speed. */
 #define SYS_CLK_HZ 80000000UL
 
-/* Microsecond busy-loop delay (calibrated for 80 MHz, -O0). */
 static void LCD_delay_us(uint32_t us);
-/* Millisecond delay backed by the SysTick-based HAL timebase. */
 static void LCD_delay_ms(uint32_t ms);
 static void LCD_write_nibble(uint8_t nibble);
 
-/* Short delay based on the 80 MHz clock. */
+/* Microsecond busy-loop delay (calibrated for 80 MHz, -O0). */
 static void LCD_delay_us(uint32_t us) {
   volatile uint32_t count = (SYS_CLK_HZ / 4000000UL) * us;
   while (count--) {
@@ -40,7 +38,7 @@ static void LCD_delay_us(uint32_t us) {
 /* Use HAL for longer delays. */
 static void LCD_delay_ms(uint32_t ms) { HAL_Delay(ms); }
 
-/* Send four data bits to the LCD. */
+/* Put one 4-bit value on DB4-DB7 and pulse the enable pin. */
 static void LCD_write_nibble(uint8_t nibble) {
   /* Clear the old data bits. */
   GPIOB->BRR = (1UL << LCD_DB4_PIN) | (1UL << LCD_DB5_PIN) |
@@ -96,7 +94,9 @@ void LCD_write_string(const char *text) {
 }
 
 /* Clear the display. */
-void LCD_clear(void) { LCD_command(LCD_CLEAR_DISPLAY); }
+void LCD_clear(void) { 
+  LCD_command(LCD_CLEAR_DISPLAY); 
+}
 
 /* Move the cursor.  row 0 = top line, row 1 = bottom line. */
 void LCD_set_cursor(uint8_t row, uint8_t column) {
